@@ -1,0 +1,70 @@
+# Render Blueprint: web app + background sync worker + PostgreSQL.
+# Render dashboard > New > Blueprint > pick this repo. Secrets marked
+# `sync: false` are typed in the dashboard (never committed).
+
+envVarGroups:
+  - name: jn-bi-shared
+    envVars:
+      - key: APP_SECRET_KEY
+        generateValue: true   # shared by web + worker (encrypts stored Jobber tokens)
+      - key: JOBBER_CLIENT_ID
+        sync: false
+      - key: JOBBER_CLIENT_SECRET
+        sync: false
+      - key: PIPEDRIVE_API_TOKEN
+        sync: false
+      - key: PIPEDRIVE_COMPANY_DOMAIN
+        sync: false
+      - key: APP_BASE_URL
+        sync: false           # e.g. https://jn-bi.onrender.com (no trailing slash)
+      - key: JOBBER_API_VERSION
+        value: "2026-05-12"
+      - key: JOBBER_HISTORY_START
+        value: "2026-09-01"
+      - key: SYNC_INTERVAL_MINUTES
+        value: "15"
+      - key: USE_QUOTE_ORIGIN_ENGINE
+        value: "true"
+      - key: REPORT_TIMEZONE
+        value: America/New_York
+      - key: PYTHON_VERSION
+        value: "3.12.10"
+
+databases:
+  - name: jn-bi-db
+    plan: basic-256mb
+    databaseName: jnbi
+    user: jnbi
+
+services:
+  - type: web
+    name: jn-bi
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: alembic upgrade head
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    healthCheckPath: /_stcore/health
+    envVars:
+      - fromGroup: jn-bi-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: jn-bi-db
+          property: connectionString
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+
+  - type: worker
+    name: jn-bi-sync
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python worker.py
+    envVars:
+      - fromGroup: jn-bi-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: jn-bi-db
+          property: connectionString
